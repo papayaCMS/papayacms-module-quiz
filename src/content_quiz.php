@@ -184,5 +184,16 @@ class content_quiz extends base_content {
     }
     return $result;
   }
+
+  /**
+  * Always prevent URL change as the redirect would delete POST data
+  *
+  * @param string $currentFilename
+  * @param string $outputMode
+  * @return boolean FALSE
+  */
+  public function checkURLFilename($currentFileName, $outputMode) {
+    return FALSE;
+  }
 }
 
