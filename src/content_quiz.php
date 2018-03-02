@@ -89,7 +89,7 @@ class content_quiz extends base_content {
   * @access public
   * @return string $result or ''
   */
-  public function getParsedTeaser() {
+  public function getParsedTeaser($parseParams = NULL) {
     $this->setDefaultData();
     if (@trim($this->data['teaser']) != '') {
       $result = sprintf(
