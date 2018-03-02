@@ -65,7 +65,7 @@ class content_quiz extends base_content {
   * @access public
   * @return string $result xml
   */
-  public function getParsedData() {
+  public function getParsedData($parseParams = NULL) {
     $this->setDefaultData();
     $this->quizObject = new base_quiz();
     $this->quizObject->module = $this;
