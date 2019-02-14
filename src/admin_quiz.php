@@ -53,11 +53,6 @@ class admin_quiz extends base_quiz {
   private $localImages = array();
 
   /**
-   * @var array
-   */
-  private $groupsOpen = array();
-
-  /**
    * @var base_dialog
    */
   private $dialogGroup;

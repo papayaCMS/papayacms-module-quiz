@@ -68,6 +68,11 @@ class base_quiz extends base_db {
   var $groupTree = NULL;
 
   /**
+   * @var array
+   */
+  protected $groupsOpen = array();
+
+  /**
   * Group detail
   * @var array $groupDetail
   */
