@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<table name="quiz_assessment" prefix="yes">
+  <fields>
+    <field name="assessment_id" type="integer" size="4" null="no" autoinc="yes"/>
+    <field name="group_id" type="integer" size="4" null="no"/>
+    <field name="lng_id" type="integer" size="4" null="no"/>
+    <field name="assessment_title" type="string" size="255" null="yes"/>
+    <field name="assessment_text" type="string" size="255" null="yes"/>
+    <field name="assessment_rating" type="integer" size="4" null="no" default="0"/>
+  </fields>
+  <keys>
+    <primary-key>
+      <field>assessment_id</field>
+    </primary-key>
+    <key name="quiz_group_id">
+      <field>group_id</field>
+    </key>
+  </keys>
+</table>

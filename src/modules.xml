@@ -10,6 +10,7 @@
   </modules>
   <tables>
     <table name="quiz_answer"/>
+    <table name="quiz_assessment"/>
     <table name="quiz_group"/>
     <table name="quiz_group_trans"/>
     <table name="quiz_question"/>

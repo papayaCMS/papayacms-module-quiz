@@ -16,6 +16,7 @@
 * @subpackage Free-Quiz
 * @version $Id: admin_quiz.php 39818 2014-05-13 13:15:13Z weinert $
 */
+use Papaya\UI;
 
 /**
 * group administration
@@ -24,6 +25,10 @@
 * @subpackage Free-Quiz
 */
 class admin_quiz extends base_quiz {
+
+  private $assessment;
+  private $assessments;
+  private $dialogAssessment;
 
   /**
   * Topic parameter name
@@ -336,13 +341,56 @@ class admin_quiz extends base_quiz {
       $this->loadAnswer($this->params['answer_id']);
       $this->moveA($this->getNextBiggerA($this->answer['answer_number']));
       break;
+
+    case 'add_assessment' :
+      if (isset($this->params['group_id']) && $this->params['group_id'] > 0) {
+        $dialog = $this->getAssessmentEditForm();
+        if (
+          $dialog->execute() &&
+          ($assessmentId = $this->createAssessment($dialog->data))
+        ) {
+          $this->papaya()->messages->displayInfo('Assessment added.');
+          $this->assessment = $this->loadAssessment($assessmentId);
+          $this->params['cmd'] = 'edit_assessment';
+          $this->params['assessment_id'] = $assessmentId;
+          $this->dialogAssessment = NULL;
+        }
+      }
+      break;
+    case 'edit_assessment' :
+      if (
+        isset($this->params['assessment_id']) &&
+        $this->params['assessment_id'] > 0 &&
+        ($this->assessment = $this->loadAssessment($this->params['assessment_id']))
+      ) {
+        $dialog = $this->getAssessmentEditForm();
+        if (
+          $dialog->execute() &&
+          ($assessmentId = $this->saveAssessment($dialog->data))
+        ) {
+          $this->papaya()->messages->displayInfo('Assessment saved.');
+        }
+      };
+      break;
+    case 'delete_assessment' :
+      if (
+        isset($this->params['assessment_id']) &&
+        $this->params['assessment_id'] > 0 &&
+        ($this->assessment = $this->loadAssessment($this->params['assessment_id']))
+      ) {
+        $dialog = $this->getAssessmentDeleteForm();
+        if ($dialog->execute() && $this->deleteAssessment($dialog->data['assessment_id'])) {
+          $this->papaya()->messages->displayInfo('Assessment deleted.');
+          $this->params['cmd'] = 'edit_group';
+        }
+      }
+      break;
     }
 
     $this->sessionParams['groupsopen'] = $this->groupsOpen;
     $this->setSessionValue($this->sessionParamName, $this->sessionParams);
     $this->loadGroups($this->papaya()->administrationLanguage->id);
-    if (isset($this->params) && isset($this->params['group_id']) &&
-    $this->params['group_id'] > 0) {
+    if (isset($this->params['group_id']) && $this->params['group_id'] > 0) {
       $this->loadGroup($this->params['group_id']);
 
       $this->loadGroupDetail(
@@ -367,6 +415,10 @@ class admin_quiz extends base_quiz {
           $this->loadAnswer($this->params['answer_id']);
         }
       }
+      if (isset($this->params['assessment_id']) && $this->params['assessment_id'] > 0) {
+        $this->assessment = $this->loadAssessment($this->params['assessment_id']);
+      }
+      $this->assessments = $this->loadAssessmentList($this->params['group_id'], $this->papaya()->administrationLanguage->id);
     }
   }
 
@@ -383,41 +435,63 @@ class admin_quiz extends base_quiz {
       case 'del_group':
         $this->getXMLDelGroupForm();
         $this->getXMLQuestionTree();
+        $this->getXMLAssessmentTree();
         break;
       case 'add_question':
         $this->getXMLQuestionEditForm();
         $this->getXMLQuestionTree();
+        $this->getXMLAssessmentTree();
         break;
       case 'del_question':
         $this->getXMLDelQuestionForm();
         $this->getXMLQuestionTree();
         $this->getXMLAnswerTree();
+        $this->getXMLAssessmentTree();
         break;
       case 'add_answer':
         $this->getXMLAnswerEditForm();
         $this->getXMLQuestionTree();
         $this->getXMLAnswerTree();
+        $this->getXMLAssessmentTree();
         break;
       case 'del_answer':
         $this->getXMLDelAnswerForm();
         $this->getXMLQuestionTree();
         $this->getXMLAnswerTree();
+        $this->getXMLAssessmentTree();
+        break;
+      case 'add_assessment':
+        $this->getXMLAssessmentEditForm();
+        $this->getXMLQuestionTree();
+        $this->getXMLAnswerTree();
+        $this->getXMLAssessmentTree();
+        break;
+      case 'delete_assessment':
+        $this->layout->add($this->getAssessmentDeleteForm()->getXML());
+        $this->getXMLQuestionTree();
+        $this->getXMLAnswerTree();
+        $this->getXMLAssessmentTree();
         break;
       default:
-        if (isset($this->params['answer_id']) &&
-            $this->params['answer_id'] != 0) {
+        if (isset($this->params['assessment_id']) && $this->params['assessment_id'] > 0) {
+          $this->getXMLAssessmentEditForm();
+          $this->getXMLQuestionTree();
+          $this->getXMLAnswerTree();
+          $this->getXMLAssessmentTree();
+        } elseif (isset($this->params['answer_id']) && $this->params['answer_id'] > 0) {
           $this->getXMLAnswerEditForm();
           $this->getXMLQuestionTree();
           $this->getXMLAnswerTree();
-        } elseif (isset($this->params['question_id']) &&
-                  $this->params['question_id'] != 0) {
+          $this->getXMLAssessmentTree();
+        } elseif (isset($this->params['question_id']) && $this->params['question_id'] > 0) {
           $this->getXMLQuestionEditForm();
           $this->getXMLQuestionTree();
           $this->getXMLAnswerTree();
-        } elseif (isset($this->params['group_id']) &&
-                  $this->params['group_id'] != 0) {
+          $this->getXMLAssessmentTree();
+        } elseif (isset($this->params['group_id']) && $this->params['group_id'] > 0) {
           $this->getXMLGroupEditForm();
           $this->getXMLQuestionTree();
+          $this->getXMLAssessmentTree();
         }
       }
     }
@@ -1336,8 +1410,7 @@ class admin_quiz extends base_quiz {
       $toolbar->addSeparator();
     }
 
-    if (isset($this->params) && isset($this->params['group_id']) &&
-    $this->params['group_id'] != 0) {
+    if (isset($this->params['group_id']) && $this->params['group_id'] > 0) {
       $toolbar->addButton(
         'Add question',
         $this->getLink(
@@ -1349,8 +1422,7 @@ class admin_quiz extends base_quiz {
         $this->localImages['question-add']
       );
 
-      if (isset($this->params) && isset($this->params['question_id']) &&
-      $this->params['question_id'] != 0) {
+      if (isset($this->params['question_id']) && $this->params['question_id'] > 0) {
         $toolbar->addButton(
           'Delete question',
           $this->getLink(
@@ -1374,8 +1446,7 @@ class admin_quiz extends base_quiz {
           ),
           $this->localImages['answer-add']
         );
-        if (isset($this->params) && isset($this->params['answer_id']) &&
-        $this->params['answer_id'] != 0) {
+        if (isset($this->params['answer_id']) && $this->params['answer_id'] > 0) {
           $toolbar->addButton(
             'Delete answer',
             $this->getLink(
@@ -1388,11 +1459,221 @@ class admin_quiz extends base_quiz {
           );
         }
       }
+      $toolbar->addSeparator();
+      $toolbar->addButton(
+        'Add assessment',
+        $this->getLink(
+          array(
+            'cmd' => 'add_assessment',
+            'group_id' => @(int)$this->params['group_id'],
+            'question_id' => 0,
+            'answer_id' => 0
+          )
+        ),
+        'icon.items.page.add'
+      );
+      if (isset($this->params['assessment_id']) && $this->params['assessment_id'] > 0) {
+        $toolbar->addButton(
+          'Delete assessment',
+          $this->getLink(
+            array(
+              'cmd' => 'delete_assessment',
+              'assessment_id' => @(int)$this->params['assessment_id'],
+              'question_id' => 0,
+              'answer_id' => 0
+            )
+          ),
+          'icon.items.page.remove'
+        );
+      }
     }
 
     if ($str = $toolbar->getXML()) {
       $this->layout->addMenu(sprintf('<menu ident="edit">%s</menu>'.LF, $str));
     }
+  }
+
+  private function getXMLAssessmentTree() {
+    if (is_array($this->assessments) && count($this->assessments) > 0) {
+      $listView = new UI\ListView();
+      $listView->caption = new UI\Text\Translated('Assessments');
+      foreach ($this->assessments as $assessment) {
+        $listView->items[] = $item = new UI\ListView\Item(
+          'icon.items.page',
+          \Papaya\Utility\Text::truncate($assessment['assessment_title'], 30),
+          [
+            $this->parameterGroup() => [
+              'cmd' => 'edit_assessment',
+              'group_id' => $assessment['group_id'],
+              'assessment_id' => $assessment['assessment_id'],
+              'question_id' => 0,
+              'answer_id' => 0
+            ]
+          ]
+        );
+        if (isset($this->params['assessment_id']) && $this->params['assessment_id'] === $assessment['assessment_id']) {
+          $item->selected = TRUE;
+        }
+        $item->subitems[] = $subItem = new Papaya\UI\ListView\SubItem\Text('>='.$assessment['assessment_rating']);
+        $subItem->align = UI\Option\Align::RIGHT;
+      }
+      $this->layout->addRight($listView->getXML());
+    }
+  }
+
+  private function getXMLAssessmentEditForm() {
+    if (isset($this->group)) {
+      $this->layout->add($this->getAssessmentEditForm()->getXML());
+    }
+  }
+
+  private function getAssessmentEditForm() {
+    if (!$this->dialogAssessment) {
+      $this->dialogAssessment = $dialog = new UI\Dialog();
+      $dialog->parameterGroup($this->parameterGroup());
+      $dialog->options->topButtons = FALSE;
+      if (isset($this->assessment) && is_array($this->assessment)) {
+        $dialog->caption = new UI\Text\Translated('Edit assessment');
+        $dialog->data->merge($this->assessment);
+        $dialog->hiddenFields->merge(
+          [
+            'cmd' => 'edit_assessment',
+            'group_id' => $this->assessment['group_id'],
+            'assessment_id' => $this->assessment['assessment_id'],
+            'question_id' => 0,
+            'answer_id' => 0
+          ]
+        );
+        $dialog->buttons[] = new UI\Dialog\Button\Submit(new UI\Text\Translated('Save'));
+      } else {
+        $dialog->caption = new UI\Text\Translated('Add assessment');
+        $dialog->hiddenFields->merge(
+          [
+            'cmd' => 'add_assessment',
+            'group_id' => $this->params['group_id'],
+            'assessment_id' => 0,
+            'question_id' => 0,
+            'answer_id' => 0
+          ]
+        );
+        $dialog->buttons[] = new UI\Dialog\Button\Submit(new UI\Text\Translated('Add'));
+      }
+      $dialog->fields[] = new UI\Dialog\Field\Input\Number(
+        new UI\Text\Translated('Rating >='),
+        'assessment_rating',
+        0,
+        TRUE,
+        1,
+        3
+      );
+      $dialog->fields[] = $field = new UI\Dialog\Field\Input(
+        new UI\Text\Translated('Title'),
+        'assessment_title',
+        250,
+        ''
+      );
+      $field->setMandatory(TRUE);
+      $dialog->fields[] = new UI\Dialog\Field\Textarea\Richtext(
+        new UI\Text\Translated('Text'),
+        'assessment_text',
+        10,
+        '',
+        new Papaya\Filter\NotEmpty()
+      );
+    }
+    return $this->dialogAssessment;
+  }
+
+  private function createAssessment($data) {
+    return $this->databaseInsertRecord(
+      $this->databaseGetTableName(self::TABLE_ASSESSMENTS),
+      'assessment_id',
+      [
+        'group_id' => $data['group_id'],
+        'lng_id' => $this->papaya()->administrationLanguage->id,
+        'assessment_rating' => $data['assessment_rating'],
+        'assessment_title' => $data['assessment_title'],
+        'assessment_text' => $data['assessment_text']
+      ]
+    );
+  }
+
+  private function saveAssessment($data) {
+    return FALSE !== $this->databaseUpdateRecord(
+      $this->databaseGetTableName(self::TABLE_ASSESSMENTS),
+      [
+        'assessment_rating' => $data['assessment_rating'],
+        'assessment_title' => $data['assessment_title'],
+        'assessment_text' => $data['assessment_text']
+      ],
+      [
+        'assessment_id' => $data['assessment_id']
+      ]
+    );
+  }
+
+  private function deleteAssessment($data) {
+    return FALSE !== $this->databaseDeleteRecord(
+      $this->databaseGetTableName(self::TABLE_ASSESSMENTS),
+      [
+        'assessment_id' => $data['assessment_id']
+      ]
+    );
+  }
+
+  private function loadAssessment($assessmentId) {
+    $statement = new Papaya\Database\Statement\Prepared(
+      $this->getDatabaseAccess(),
+      'SELECT 
+        assessment_id, group_id, lng_id, assessment_rating, assessment_title, assessment_text
+        FROM :assessments WHERE assessment_id = :id'
+    );
+    $statement->addTableName('assessments', self::TABLE_ASSESSMENTS);
+    $statement->addInt('id', (int)$assessmentId);
+    if ($result = $this->databaseQuery($statement)) {
+      return $result->fetchRow(DB_FETCHMODE_ASSOC);
+    };
+    return FALSE;
+  }
+
+  private function loadAssessmentList($groupId, $languageId) {
+    $statement = new Papaya\Database\Statement\Prepared(
+      $this->getDatabaseAccess(),
+      'SELECT 
+        assessment_id, group_id, assessment_rating, assessment_title, assessment_text
+        FROM :assessments WHERE group_id = :group_id AND lng_id = :language_id ORDER BY assessment_rating ASC'
+    );
+    $statement->addTableName('assessments', self::TABLE_ASSESSMENTS);
+    $statement->addInt('group_id', (int)$groupId);
+    $statement->addInt('language_id', (int)$languageId);
+    if ($result = $this->databaseQuery($statement)) {
+      return iterator_to_array($result);
+    };
+    return FALSE;
+  }
+
+  private function getAssessmentDeleteForm() {
+    $dialog = new UI\Dialog();
+    $dialog->caption = new Papaya\UI\Text\Translated('Delete assessment');
+    $dialog->parameterGroup($this->parameterGroup());
+    $dialog->hiddenFields->merge(
+      [
+        'cmd' => 'delete_assessment',
+        'group_id' => $this->assessment['group_id'],
+        'assessment_id' => $this->assessment['assessment_id'],
+        'question_id' => 0,
+        'answer_id' => 0
+      ]
+    );
+    $dialog->buttons[] = new UI\Dialog\Button\Submit(new UI\Text\Translated('Delete'));
+    $dialog->fields[] = new UI\Dialog\Field\Information(
+      new UI\Text\Translated(
+        'Delete assessment "%s"?',
+        [$this->assessment['assessment_text']]
+      ),
+      'places-trash'
+    );
+    return $dialog;
   }
 }
 

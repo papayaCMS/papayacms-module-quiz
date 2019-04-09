@@ -27,6 +27,8 @@ class base_quiz extends base_db {
 
   const MODE_BOOLEAN = '0';
   const MODE_RATED = '1';
+  
+  const TABLE_ASSESSMENTS = 'quiz_assessment';
 
   /**
   * Answer
