@@ -80,12 +80,14 @@ class admin_quiz extends base_quiz {
     $this->initializeSessionParam('answer_id');
     $imagePath = 'module:'.$this->module->guid;
     $this->localImages = array(
-      'quiz' => $imagePath."/quiz.png",
-      'quiz-add' => $imagePath."/quiz-add.png",
-      'quiz-delete' => $imagePath."/quiz-delete.png",
-      'answer' => $imagePath."/answer.png",
-      'answer-add' => $imagePath."/answer-add.png",
-      'answer-delete' => $imagePath."/answer-delete.png"
+      'question' => $imagePath."/question.svg",
+      'question-add' => $imagePath."/question-add.svg",
+      'question-delete' => $imagePath."/question-delete.svg",
+      'answer' => $imagePath."/answer.svg",
+      'answer-wrong' => $imagePath."/answer-wrong.svg",
+      'answer-right' => $imagePath."/answer-right.svg",
+      'answer-add' => $imagePath."/answer-add.svg",
+      'answer-delete' => $imagePath."/answer-delete.svg"
     );
   }
 
@@ -720,7 +722,7 @@ class admin_quiz extends base_quiz {
             $this->getLink(array('question_id' => $id, 'answer_id' => 0))
           ),
           papaya_strings::escapeHTMLChars($value['question_title']),
-          papaya_strings::escapeHTMLChars($this->localImages['quiz']),
+          papaya_strings::escapeHTMLChars($this->localImages['question']),
           $selected
         );
         if ($i != 1) {
@@ -778,20 +780,31 @@ class admin_quiz extends base_quiz {
     );
     $result .= '<items>'.LF;
     if (isset($this->answers) && is_array($this->answers)) {
-      foreach ($this->answers as $id => $value) {
+      foreach ($this->answers as $id => $answer) {
         if (isset($this->params) && isset($this->params['answer_id'])) {
           $selected = ($this->params['answer_id'] == $id) ?
             ' selected="selected"' : '';
         } else {
           $selected = '';
         }
+        $image = $this->localImages['answer'];
+        if ($this->groupDetail['groupdetail_mode'] === self::MODE_BOOLEAN) {
+          $image = ($answer['answer_right'] > 0)
+            ? $this->localImages['answer-right'] : $this->localImages['answer-wrong'];
+        }
         $result .= sprintf(
           '<listitem href="%s" title="%s" image="%s" %s>'.LF,
           papaya_strings::escapeHTMLChars($this->getLink(array('answer_id' => $id))),
-          papaya_strings::escapeHTMLChars($this->getAnswerTitle($value['answer_text'])),
-          papaya_strings::escapeHTMLChars($this->localImages['answer']),
+          papaya_strings::escapeHTMLChars($this->getAnswerTitle($answer['answer_text'])),
+          papaya_strings::escapeHTMLChars($image),
           $selected
         );
+        if ($this->groupDetail['groupdetail_mode'] === self::MODE_RATED) {
+          $result .= sprintf(
+            '<subitem align="right">%d</subitem>'.LF,
+            papaya_strings::escapeHTMLChars($answer['answer_right'])
+          );
+        }
         if ($i != 1) {
           $result .= sprintf(
             '<subitem align="right"><a href="%s"><glyph src="%s"/></a></subitem>'.LF,
@@ -882,6 +895,7 @@ class admin_quiz extends base_quiz {
       }
       $fields = array(
         'groupdetail_title' => array('Title', 'isNoHTML', TRUE, 'input', 250),
+        'groupdetail_mode' => array('Mode', 'isNum', FALSE, 'translatedcombo', ['True/False', 'Rated']),
         'groupdetail_text' => array('Text', 'isSomeText', FALSE,
           'simplerichtext', 12)
       );
@@ -989,16 +1003,32 @@ class admin_quiz extends base_quiz {
         );
         $btnCaption = 'Save';
       }
-      $fields = array(
-        'answer_right' => array('Right/Wrong answer?', 'isNum', TRUE, 'combo',
-          array(1 => 'Right', 0 => 'Wrong'),
-          'Decide if right or wrong answer'),
-        'answer_text' => array('Answer title', 'isSomeText', FALSE, 'input', 200),
-        'answer_explanation' => array('Explanation', 'isSomeText',
-          FALSE, 'simplerichtext', 6),
-        'answer_response' => array('Answer response', 'isSomeText',
-          FALSE, 'simplerichtext', 6),
-
+      if ($this->groupDetail['groupdetail_mode'] === self::MODE_RATED) {
+        $fields = [
+          'answer_right' => [
+            'Rating points', 'isNum', TRUE, 'input', 3, 'Rating value in points for this answer'
+          ]
+        ];
+      } else {
+        $fields = [
+          'answer_right' => [
+            'Right/Wrong answer?', 'isNum', TRUE, 'combo', [1 => 'Right', 0 => 'Wrong'], 'Decide if right or wrong answer'
+          ]
+        ];
+      }
+      $fields = array_merge(
+        $fields,
+        [
+          'answer_text' => [
+            'Answer title', 'isSomeText', FALSE, 'input', 200
+          ],
+          'answer_explanation' => [
+            'Explanation', 'isSomeText', FALSE, 'simplerichtext', 6
+          ],
+          'answer_response' => [
+            'Answer response', 'isSomeText', FALSE, 'simplerichtext', 6
+          ],
+        ]
       );
       $this->dialogAnswer = new base_dialog(
         $this, $this->paramName, $fields, $data, $hidden
@@ -1020,8 +1050,9 @@ class admin_quiz extends base_quiz {
   function saveGroupDetail() {
     $dataTrans = array(
       'lng_id' => $this->papaya()->administrationLanguage->id,
-      'groupdetail_title' => $this->params['groupdetail_title'],
-      'groupdetail_text' => $this->params['groupdetail_text']
+      'groupdetail_title' => (string)$this->params['groupdetail_title'],
+      'groupdetail_text' => (string)$this->params['groupdetail_text'],
+      'groupdetail_mode' => (int)$this->params['groupdetail_mode']
     );
     $filter = array(
       'group_id' => (int)$this->params['group_id'],
@@ -1091,8 +1122,9 @@ class admin_quiz extends base_quiz {
     $data = array(
       'group_id' => $this->params['group_id'],
       'lng_id' => $this->papaya()->administrationLanguage->id,
-      'groupdetail_title' => $this->params['groupdetail_title'],
-      'groupdetail_text' => $this->params['groupdetail_text']
+      'groupdetail_title' => (string)$this->params['groupdetail_title'],
+      'groupdetail_text' => (string)$this->params['groupdetail_text'],
+      'groupdetail_mode' => (int)$this->params['groupdetail_mode']
     );
     return FALSE !== $this->databaseInsertRecord(
       $this->tableGroupTrans, 'groupdetail_id', $data
@@ -1314,7 +1346,7 @@ class admin_quiz extends base_quiz {
             'group_id' => @(int)$this->params['group_id']
           )
         ),
-        $this->localImages['quiz-add']
+        $this->localImages['question-add']
       );
 
       if (isset($this->params) && isset($this->params['question_id']) &&
@@ -1327,7 +1359,7 @@ class admin_quiz extends base_quiz {
               'question_id' => @(int)$this->params['question_id']
             )
           ),
-          $this->localImages['quiz-delete']
+          $this->localImages['question-delete']
         );
 
         $toolbar->addSeparator();

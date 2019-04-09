@@ -25,6 +25,9 @@
 */
 class base_quiz extends base_db {
 
+  const MODE_BOOLEAN = '0';
+  const MODE_RATED = '1';
+
   /**
   * Answer
   * @var array $answer
@@ -181,7 +184,7 @@ class base_quiz extends base_db {
       $filter = " = '0' ";
     }
     $sql = "SELECT c.group_id, c.group_parent, ct.lng_id,
-                   ct.groupdetail_title, ct.groupdetail_text
+                   ct.groupdetail_title, ct.groupdetail_text, ct.groupdetail_mode
               FROM %s AS c
               LEFT OUTER JOIN %s AS ct
                 ON (ct.group_id = c.group_id AND ct.lng_id = '%d')
@@ -219,7 +222,7 @@ class base_quiz extends base_db {
       }
     }
     $sql = "SELECT c.group_id, c.group_parent, c.group_parent_path, ct.lng_id,
-                   ct.groupdetail_title, ct.groupdetail_text
+                   ct.groupdetail_title, ct.groupdetail_text, ct.groupdetail_mode
               FROM %s AS c
               LEFT OUTER JOIN %s AS ct
                 ON (ct.group_id=c.group_id AND ct.lng_id = '%d')
@@ -280,7 +283,7 @@ class base_quiz extends base_db {
   */
   public function loadGroupDetail($id, $lngId) {
     if (isset($this->group)) {
-      $sql = "SELECT groupdetail_title, groupdetail_text, lng_id
+      $sql = "SELECT groupdetail_title, groupdetail_text, groupdetail_mode, lng_id
                 FROM %s
                WHERE group_id = '%d'
                  AND lng_id = '%d'";

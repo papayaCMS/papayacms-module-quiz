@@ -5,7 +5,7 @@
     "document-root" : "htdocs/"
   },
   "require": {
-    "papaya/cms-core": "*"
+    "papaya/cms-core": ">=6.7"
   },
   "require-dev": {
     "papaya/cms-administration": "*",
