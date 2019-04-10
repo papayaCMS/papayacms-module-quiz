@@ -24,35 +24,39 @@
 * @subpackage Free-Quiz
 */
 class content_quiz extends base_content {
+
+  const STORAGE_MODE_FIELD = base_quiz::STORAGE_MODE_FIELD;
+  const STORAGE_MODE_URL = base_quiz::STORAGE_MODE_URL;
+
   /**
   * edit fields
   * @var array $editFields
   */
-  var $editFields = array(
-    'nl2br' => array('Automatic linebreak', 'isNum', FALSE, 'translatedcombo',
-      array(0 => 'Yes', 1 => 'No'),
-      'Papaya will apply your linebreaks to the output page.',
-      0),
-    'title' => array('Title', 'isNoHTML', TRUE, 'input', 255, '', ''),
-    'teaser' => array('Teaser', 'isSomeText', FALSE, 'simplerichtext', 5, '', ''),
-    'quiz' => array('Quiz', 'isNoHTML', TRUE, 'function', 'getQuizCombo', '', ''),
-  );
-
-  /**
-   * option fields
-   * @var array $pluginOptionFields
-   */
-  var $pluginOptionFields = array(
-    'storage_mode' => array(
-      'Storage mode',
+  var $editFields = [
+    'nl2br' => [
+      'Automatic linebreak',
       'isNum',
       FALSE,
       'translatedcombo',
-      array(0 => 'Session', 1 => 'Hidden Field'),
-      '',
+      [0 => 'Yes', 1 => 'No'],
+      'Papaya will apply your linebreaks to the output page.',
       0
-    )
-  );
+    ],
+    'title' => ['Title', 'isNoHTML', TRUE, 'input', 255, '', ''],
+    'teaser' => ['Teaser', 'isSomeText', FALSE, 'simplerichtext', 5, '', ''],
+    'quiz' => ['Quiz', 'isNoHTML', TRUE, 'function', 'getQuizCombo', '', ''],
+    'Options',
+    'storage_mode' => [
+      'Mode',
+      'isNum',
+      FALSE,
+      'combo',
+      [self::STORAGE_MODE_FIELD => 'Hidden Field', self::STORAGE_MODE_URL => 'URL Parameter']
+    ],
+    'show_back_link' => ['Show Back Link', 'isNum', TRUE, 'yesno', 1, '', 0],
+    'show_assessment' => ['Show Assessment', 'isNum', TRUE, 'yesno', 1, '', 0],
+    'show_summary' => ['Show Answer Summary', 'isNum', TRUE, 'yesno', 1, '', 1]
+  ];
 
   /**
    * @var base_quiz

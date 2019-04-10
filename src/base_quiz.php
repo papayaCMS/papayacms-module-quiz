@@ -25,9 +25,14 @@
 */
 class base_quiz extends base_db {
 
+  const STORAGE_MODE_FIELD = 0;
+  const STORAGE_MODE_URL = 1;
+
   const MODE_BOOLEAN = '0';
   const MODE_RATED = '1';
-  
+
+  const TABLE_QUESTIONS = 'quiz_question';
+  const TABLE_ANSWERS = 'quiz_answer';
   const TABLE_ASSESSMENTS = 'quiz_assessment';
 
   /**
@@ -284,17 +289,15 @@ class base_quiz extends base_db {
   * @return boolean
   */
   public function loadGroupDetail($id, $lngId) {
-    if (isset($this->group)) {
-      $sql = "SELECT groupdetail_title, groupdetail_text, groupdetail_mode, lng_id
-                FROM %s
-               WHERE group_id = '%d'
-                 AND lng_id = '%d'";
-      $params = array($this->tableGroupTrans, $id, $lngId);
-      if ($res = $this->databaseQueryFmt($sql, $params)) {
-        if ($row = $res->fetchRow(DB_FETCHMODE_ASSOC)) {
-          $this->groupDetail = $row;
-          return TRUE;
-        }
+    $sql = "SELECT groupdetail_title, groupdetail_text, groupdetail_mode, lng_id
+              FROM %s
+             WHERE group_id = '%d'
+               AND lng_id = '%d'";
+    $params = array($this->tableGroupTrans, $id, $lngId);
+    if ($res = $this->databaseQueryFmt($sql, $params)) {
+      if ($row = $res->fetchRow(DB_FETCHMODE_ASSOC)) {
+        $this->groupDetail = $row;
+        return TRUE;
       }
     }
     return FALSE;
@@ -482,19 +485,46 @@ class base_quiz extends base_db {
   * @access public
   */
   public function loadAnswerByIds($answerdIds, $lngId) {
-    unset($this->answers);
-    $filter = $this->databaseGetSQLCondition('answer_id', $answerdIds);
-    $sql = "SELECT answer_id, question_id, lng_id, answer_text, answer_explanation,
-                   answer_right, answer_number, answer_response
-              FROM %s
-             WHERE lng_id = '%d' AND $filter
-             ORDER BY answer_number";
-    $params = array($this->tableAnswer, $lngId);
-    if ($res = $this->databaseQueryFmt($sql, $params)) {
+    $this->answers = [];
+    $statement = new Papaya\Database\Statement\Prepared(
+      $this->getDatabaseAccess(),
+      'SELECT a.answer_id, a.question_id, a.lng_id, a.answer_text, a.answer_explanation,
+                  a.answer_right, a.answer_number, a.answer_response
+             FROM :answers AS a
+             JOIN :questions AS q USING(question_id)
+            WHERE a.answer_id IN :answer_ids AND a.lng_id = :language_id AND q.lng_id = :language_id
+            ORDER BY q.question_number ASC, a.answer_number ASC'
+    );
+    $statement->addTableName('answers', self::TABLE_ANSWERS);
+    $statement->addTableName('questions', self::TABLE_QUESTIONS);
+    $statement->addIntList('answer_ids', $answerdIds);
+    $statement->addInt('language_id', $lngId);
+    if ($res = $this->databaseQuery($statement)) {
       while ($row = $res->fetchRow(DB_FETCHMODE_ASSOC)) {
         $this->answers[$row['answer_id']] = $row;
       }
     }
+  }
+
+  public function loadAssessmentByRating($quizId, $languageId, $rating) {
+    $statement = new Papaya\Database\Statement\Prepared(
+      $this->getDatabaseAccess(),
+      'SELECT 
+        assessment_id, group_id, lng_id, assessment_rating, assessment_title, assessment_text
+        FROM :assessments 
+       WHERE group_id = :group_id 
+         AND lng_id = :language_id
+         AND assessment_rating < :rating
+       ORDER BY assessment_rating DESC'
+    );
+    $statement->addTableName('assessments', self::TABLE_ASSESSMENTS);
+    $statement->addInt('group_id', (int)$quizId);
+    $statement->addInt('language_id', (int)$languageId);
+    $statement->addInt('rating', (int)$rating);
+    if ($result = $this->databaseQuery($statement, 1)) {
+      return $result->fetchRow(DB_FETCHMODE_ASSOC);
+    };
+    return FALSE;
   }
 
   /**
@@ -617,12 +647,17 @@ class base_quiz extends base_db {
    * @param string $string
    * @param integer $questionId
    * @param integer $answerId
+   * @param integer $languageId
    * @return string
    */
-  public function saveAnswerToString($string, $questionId, $answerId) {
-    $string .= ($string != '') ? '-': '';
-    $string .= $questionId.':'.$answerId;
-    return $string;
+  public function saveAnswerToString($string, $questionId, $answerId, $languageId) {
+    $this->loadAnswerList($questionId, $languageId);
+    $answers = array_diff(
+      $this->getStoredAnswersFromString($string),
+      array_keys($this->answers)
+    );
+    $answers[] = $answerId;
+    return implode(' ', $answers);
   }
 
   /**
@@ -630,28 +665,10 @@ class base_quiz extends base_db {
    * @return array
    */
   public function getStoredAnswersFromString($string) {
-    $answerIds = array();
-
-    $elementsArray = explode('-', $string);
-    if ($elementsArray[0] != NULL) {
-      foreach ($elementsArray as $oneElementString) {
-        $elementArray = explode(':', $oneElementString);
-        if (isset($elementArray[0]) && isset($elementArray[1])) {
-          $answerIds[$elementArray[0]] = $elementArray[1];
-        }
-      }
+    if (preg_match_all('(\d+)', $string, $matches)) {
+      return $matches[0];
     }
-    return $answerIds;
-  }
-
-  /**
-   * @return array|string
-   */
-  public function getStorageMode () {
-    /** @var PapayaConfiguration $options */
-    $options = $this->papaya()->plugins->options['62ef421571d22cf30d6abf79403204b9'];
-    $autoRegister = $options->get('storage_mode', 0);
-    return $autoRegister;
+    return [];
   }
 
   // --------------------------------------  CONTENT ---------------------------------------------
@@ -666,157 +683,165 @@ class base_quiz extends base_db {
   public function getContentOutput($contentObj, $data) {
 
     $result = '';
-    $this->loadQuestionList(
-      $data['quiz'],
-      $contentObj->parentObj->getContentLanguageId()
-    );
-    if (isset($this->questions) && is_array($this->questions) && count($this->questions) > 0) {
+    $quizId = $data['quiz'];
+    $this->loadGroupDetail($quizId, $contentObj->parentObj->getContentLanguageId());
+    $this->loadQuestionList($quizId, $contentObj->parentObj->getContentLanguageId());
+
+    if (isset($this->groupDetail) && isset($this->questions) && is_array($this->questions) && count($this->questions) > 0) {
       $questionIds = array_keys($this->questions);
 
-      // store answers in session or hidden field
+      $showFollowing = FALSE;
       if (isset($this->params['question_id']) && isset($this->params['answer_id'])) {
-
-        if ($this->getStorageMode() == 1) {
-          if (isset($this->params['stored_values'])) {
-
-            $this->params['stored_values'] = $this->saveAnswerToString(
-              $this->params['stored_values'],
-              $this->params['question_id'],
-              $this->params['answer_id']
-            );
-          }
-        } else {
-          $answerIds = $this->getSessionValue($this->sessionParamName.'_quiz_answers');
-          if (!is_array($answerIds)) {
-            $answerIds = array();
-          }
-          $answerIds[$this->params['question_id']] = $this->params['answer_id'];
-          $this->setSessionValue($this->sessionParamName.'_quiz_answers', $answerIds);
-        }
-      }
-
-      $quid = $questionIds[0];
-      $qNr = 1;
-      $lastId = -1;
-      if (isset($this->params['question_id'])) {
-        $add = 0;
-        foreach ($questionIds as $i => $id) {
-          if ($id == $this->params['question_id']) {
-            if (isset($this->params['answer_id'])) {
-              $add = 1;
-            }
-            $quid = @$questionIds[$i + $add];
-            $qNr = $i + 1 + $add;
-            break;
-          }
-        }
-        $sort = $questionIds;
-        sort($sort);
-        $lastId = array_pop($sort);
-      }
-
-      if ($this->getStorageMode() == 1) {
-        $result .= sprintf(
-          '<quiz action="%s" stored_name="%s" stored_values="%s">'.LF,
-          papaya_strings::escapeHTMLChars(
-            $this->getWebLink(
-              NULL,
-              NULL,
-              NULL,
-              array('question_id' => $quid),
-              $this->paramName
-            )
-          ),
-          $this->paramName.'[stored_values]',
-          isset($this->params['stored_values']) ? $this->params['stored_values'] : ''
+        $this->params['answers'] = $this->saveAnswerToString(
+          $this->params['answers'] ? $this->params['answers'] : '',
+          $this->params['question_id'],
+          $this->params['answer_id'],
+          $contentObj->parentObj->getContentLanguageId()
         );
-      } else {
+        $showFollowing = TRUE;
+      }
+
+      $selectedAnswerIds = [];
+      if (isset($this->params['answers'])) {
+        $selectedAnswerIds = $this->getStoredAnswersFromString($this->params['answers']);
+      }
+
+      $previousId = NULL;
+      $lastId = end($questionIds);
+      $currentId = isset($this->params['question_id']) && in_array($this->params['question_id'], $questionIds, FALSE)
+        ? $this->params['question_id'] : reset($questionIds);
+      $currentOffset = array_search($currentId, $questionIds, FALSE) ?: 0;
+      $questionNumber = $currentOffset + 1;
+      if ($showFollowing && $currentOffset <= count($questionIds) - 1) {
+        $previousId = $currentId;
+        $currentId = $questionIds[$currentOffset + 1];
+        $questionNumber = $currentOffset + 2;
+      } elseif ($currentOffset > 0) {
+        $previousId = $questionIds[$currentOffset - 1];
+      }
+
+      $result .= sprintf(
+        '<quiz action="%s" mode="%s" parameter_mode="%s" parameter_group="%s" stored_name="%s" stored_values="%s">'.LF,
+        papaya_strings::escapeHTMLChars($this->getWebLink()),
+        $this->groupDetail['groupdetail_mode'] === self:: MODE_RATED ? 'rated' : 'boolean',
+        isset($data['storage_mode']) && (int)$data['storage_mode'] === self::STORAGE_MODE_URL ? 'get' : 'post',
+        $this->paramName,
+        $this->paramName.'[answers]',
+        isset($this->params['answers']) ? $this->params['answers'] : ''
+      );
+      if (
+        isset($data['show_back_link']) &&
+        $data['show_back_link'] &&
+        $previousId > 0
+      ) {
         $result .= sprintf(
-          '<quiz action="%s">'.LF,
+          '<link rel="back" href="%s"/>',
           papaya_strings::escapeHTMLChars(
             $this->getWebLink(
               NULL,
               NULL,
               NULL,
-              array('question_id' => $quid),
+              [
+                'answers' => isset($this->params['answers']) ? $this->params['answers'] : '',
+                'question_id' => isset($this->params['question_id']) ? $previousId : ''
+              ],
               $this->paramName
             )
           )
         );
       }
 
-      if (isset($this->questions[$quid])) {
-        $question = $this->questions[$quid];
+      if (isset($this->questions[$currentId])) {
+        $question = $this->questions[$currentId];
         $result .= sprintf(
           '<question number="%d" id="%d" last="%d" title="%s"'.
           ' fieldname="%s[question_id]">%s</question>'.LF,
-          $qNr,
+          $questionNumber,
           $question['question_id'],
-          ($quid == $lastId),
+          ($currentId == $lastId),
           papaya_strings::escapeHTMLChars($question['question_title']),
           $this->paramName,
           $contentObj->getXHTMLString($question['question_text'])
         );
         $this->params['question_id'] = NULL;
         $this->params['answer_id'] = NULL;
-        $this->loadAnswerList($quid, $contentObj->parentObj->getContentLanguageId());
+        $this->loadAnswerList($currentId, $contentObj->parentObj->getContentLanguageId());
         if (isset($this->answers) && is_array($this->answers)) {
           foreach ($this->answers as $value) {
             $result .= sprintf(
-              '<answer id="%d" fieldname="%s[answer_id]">'.
+              '<answer id="%d" fieldname="%s[answer_id]"%s>'.
               '<text>%s</text><explanation>%s</explanation></answer>'.LF,
               (int)$value['answer_id'],
               $this->paramName,
+              in_array($value['answer_id'], $selectedAnswerIds, FALSE) ? ' selected="yes"' : '',
               $contentObj->getXHTMLString($value['answer_text']),
               $contentObj->getXHTMLString($value['answer_explanation'])
             );
           }
         }
-      } elseif (!isset($this->questions[$quid])) {
+      } elseif (!isset($this->questions[$currentId])) {
         $answerIds = array();
-
-        if ($this->getStorageMode() == 1) {
-          if (isset($this->params['stored_values'])) {
-            $answerIds = $this->getStoredAnswersFromString($this->params['stored_values']);
-          }
-        } else {
-          $answerIds = $this->getSessionValue($this->sessionParamName.'_quiz_answers');
+        if (isset($this->params['answers'])) {
+          $answerIds = $this->getStoredAnswersFromString($this->params['answers']);
         }
 
         if (isset($answerIds) && is_array($answerIds) && count($answerIds) > 0) {
-          ksort($answerIds);
           $this->loadAnswerByIds($answerIds, $contentObj->parentObj->getContentLanguageId());
-          $result .= '<summary>'.LF;
-          $j = 1;
-          foreach ($answerIds as $questionId => $answerId) {
-            if (isset($this->answers[$answerId]) && isset($this->questions[$questionId])) {
-              $answer = $this->answers[$answerId];
-              $question = $this->questions[$questionId];
-              $result .= sprintf(
-                '<question number="%d"><title>%s</title>'.
-                '<link>%s</link><text>%s</text>'.LF,
-                $j++,
-                $contentObj->getXHTMLString($question['question_title']),
-                $contentObj->getXHTMLString($question['question_link']),
-                $contentObj->getXHTMLString($question['question_text'])
-              );
-              $result .= sprintf(
-                '<given_answer>%s</given_answer>',
-                $contentObj->getXHTMLString($answer['answer_text'])
-              );
-              $result .= sprintf(
-                '<explanation>%s</explanation>',
-                $contentObj->getXHTMLString($answer['answer_explanation'])
-              );
-              $result .= sprintf(
-                '<reply correct="%d">%s</reply>'.LF,
-                (int)$answer['answer_right'],
-                $contentObj->getXHTMLString($answer['answer_response'])
-              );
-              $result .= '</question>'.LF;
+          if (isset($data['show_assessment']) && $data['show_assessment']) {
+            $rating = array_reduce(
+              $this->answers,
+              function ($carry, $answer) {
+                return $carry + $answer['answer_right'];
+              },
+              0
+            );
+            $assessment = $this->loadAssessmentByRating(
+              $quizId, $contentObj->parentObj->getContentLanguageId(), $rating
+            );
+            if ($assessment) {
+              $result .= '<assessment>';
+              $result .= sprintf('<title>%s</title>', $contentObj->getXHTMLString($assessment['assessment_title']));
+              $result .= sprintf('<text>%s</text>', $contentObj->getXHTMLString($assessment['assessment_text']));
+              $result .= '</assessment>';
             }
           }
-          $result .= '</summary>'.LF;
+          if (isset($data['show_summary']) && $data['show_summary']) {
+            $result .= '<summary>'.LF;
+            $j = 1;
+            foreach ($answerIds as $answerId) {
+              if (isset($this->answers[$answerId])) {
+                $answer = $this->answers[$answerId];
+                $questionId = $answer['question_id'];
+                if (isset($this->questions[$questionId])) {
+                  $question = $this->questions[$questionId];
+                  $result .= sprintf(
+                    '<question number="%d"><title>%s</title>'.
+                    '<link>%s</link><text>%s</text>'.LF,
+                    $j++,
+                    $contentObj->getXHTMLString($question['question_title']),
+                    $contentObj->getXHTMLString($question['question_link']),
+                    $contentObj->getXHTMLString($question['question_text'])
+                  );
+                  $result .= sprintf(
+                    '<given_answer>%s</given_answer>',
+                    $contentObj->getXHTMLString($answer['answer_text'])
+                  );
+                  $result .= sprintf(
+                    '<explanation>%s</explanation>',
+                    $contentObj->getXHTMLString($answer['answer_explanation'])
+                  );
+                  $result .= sprintf(
+                    '<reply value="%d" correct="%d">%s</reply>'.LF,
+                    $answer['answer_right'],
+                    $answer['answer_right'] > 0 ? 1 : 0,
+                    $contentObj->getXHTMLString($answer['answer_response'])
+                  );
+                  $result .= '</question>'.LF;
+                }
+              }
+            }
+            $result .= '</summary>'.LF;
+          }
         }
       }
       $result .= '</quiz>'.LF;

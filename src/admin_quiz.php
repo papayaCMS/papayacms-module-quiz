@@ -345,15 +345,21 @@ class admin_quiz extends base_quiz {
     case 'add_assessment' :
       if (isset($this->params['group_id']) && $this->params['group_id'] > 0) {
         $dialog = $this->getAssessmentEditForm();
-        if (
-          $dialog->execute() &&
-          ($assessmentId = $this->createAssessment($dialog->data))
-        ) {
-          $this->papaya()->messages->displayInfo('Assessment added.');
-          $this->assessment = $this->loadAssessment($assessmentId);
-          $this->params['cmd'] = 'edit_assessment';
-          $this->params['assessment_id'] = $assessmentId;
-          $this->dialogAssessment = NULL;
+        if ($dialog->execute()) {
+          $isDuplicateRating = $this->checkAssessmentRatingExists(
+            $dialog->data['group_id'],
+            $this->papaya()->administrationLanguage->id,
+            $dialog->data['assessment_rating']
+          );
+          if ($isDuplicateRating) {
+            $this->papaya()->messages->displayError('Can not add duplicate assessment rating.');
+          } elseif ($assessmentId = $this->createAssessment($dialog->data)) {
+            $this->papaya()->messages->displayInfo('Assessment added.');
+            $this->assessment = $this->loadAssessment($assessmentId);
+            $this->params['cmd'] = 'edit_assessment';
+            $this->params['assessment_id'] = $assessmentId;
+            $this->dialogAssessment = NULL;
+          }
         }
       }
       break;
@@ -379,7 +385,7 @@ class admin_quiz extends base_quiz {
         ($this->assessment = $this->loadAssessment($this->params['assessment_id']))
       ) {
         $dialog = $this->getAssessmentDeleteForm();
-        if ($dialog->execute() && $this->deleteAssessment($dialog->data['assessment_id'])) {
+        if ($dialog->execute() && $this->deleteAssessment($this->assessment['assessment_id'])) {
           $this->papaya()->messages->displayInfo('Assessment deleted.');
           $this->params['cmd'] = 'edit_group';
         }
@@ -831,17 +837,6 @@ class admin_quiz extends base_quiz {
   }
 
   /**
-  * Get answer title
-  *
-  * @param string $str
-  * @access public
-  * @return string
-  */
-  function getAnswerTitle($str) {
-    return substr(strip_tags($str), 0, 10);
-  }
-
-  /**
   * Answer tree
   *
   * @access public
@@ -869,7 +864,9 @@ class admin_quiz extends base_quiz {
         $result .= sprintf(
           '<listitem href="%s" title="%s" image="%s" %s>'.LF,
           papaya_strings::escapeHTMLChars($this->getLink(array('answer_id' => $id))),
-          papaya_strings::escapeHTMLChars($this->getAnswerTitle($answer['answer_text'])),
+          papaya_strings::escapeHTMLChars(
+            \Papaya\Utility\Text::truncate(strip_tags($answer['answer_text']), 30, TRUE, '…')
+          ),
           papaya_strings::escapeHTMLChars($image),
           $selected
         );
@@ -892,7 +889,7 @@ class admin_quiz extends base_quiz {
         } else {
           $result .= sprintf('<subitem/>');
         }
-        if ($i < count($this->questions)) {
+        if ($i < count($this->answers)) {
           $result .= sprintf(
             '<subitem align="right"><a href="%s"><glyph src="%s"/></a></subitem>'.LF,
             papaya_strings::escapeHTMLChars(
@@ -1073,6 +1070,7 @@ class admin_quiz extends base_quiz {
         $hidden = array(
            'cmd' => 'create_answer',
            'save' => 1,
+           'group_id' => $this->params['group_id'],
            'question_id' => $this->params['question_id']
         );
         $btnCaption = 'Save';
@@ -1080,7 +1078,7 @@ class admin_quiz extends base_quiz {
       if ($this->groupDetail['groupdetail_mode'] === self::MODE_RATED) {
         $fields = [
           'answer_right' => [
-            'Rating points', 'isNum', TRUE, 'input', 3, 'Rating value in points for this answer'
+            'Rating points', 'isNum', TRUE, 'input', 3, 'Rating value in points for this answer', '0'
           ]
         ];
       } else {
@@ -1260,13 +1258,13 @@ class admin_quiz extends base_quiz {
     }
     $num++;
     $data = array(
-      'question_id' => $this->params['question_id'],
-      'lng_id' => $this->papaya()->administrationLanguage->id,
-      'answer_text' => $this->dialogAnswer->data['answer_text'],
-      'answer_explanation' => $this->dialogAnswer->data['answer_explanation'],
-      'answer_response' => $this->dialogAnswer->data['answer_response'],
-      'answer_right' => $this->params['answer_right'],
-      'answer_number' => $num
+      'question_id' => (int)$this->params['question_id'],
+      'lng_id' => (int)$this->papaya()->administrationLanguage->id,
+      'answer_text' => (string)$this->dialogAnswer->data['answer_text'],
+      'answer_explanation' => (string)$this->dialogAnswer->data['answer_explanation'],
+      'answer_response' => (string)$this->dialogAnswer->data['answer_response'],
+      'answer_right' => (int)$this->params['answer_right'],
+      'answer_number' => (int)$num
     );
     return $this->databaseInsertRecord($this->tableAnswer, 'answer_id', $data);
   }
@@ -1570,7 +1568,8 @@ class admin_quiz extends base_quiz {
         new UI\Text\Translated('Title'),
         'assessment_title',
         250,
-        ''
+        '',
+        NEW \Papaya\Filter\NotEmpty()
       );
       $field->setMandatory(TRUE);
       $dialog->fields[] = new UI\Dialog\Field\Textarea\Richtext(
@@ -1612,11 +1611,11 @@ class admin_quiz extends base_quiz {
     );
   }
 
-  private function deleteAssessment($data) {
+  private function deleteAssessment($assessmentId) {
     return FALSE !== $this->databaseDeleteRecord(
       $this->databaseGetTableName(self::TABLE_ASSESSMENTS),
       [
-        'assessment_id' => $data['assessment_id']
+        'assessment_id' => $assessmentId
       ]
     );
   }
@@ -1632,6 +1631,25 @@ class admin_quiz extends base_quiz {
     $statement->addInt('id', (int)$assessmentId);
     if ($result = $this->databaseQuery($statement)) {
       return $result->fetchRow(DB_FETCHMODE_ASSOC);
+    };
+    return FALSE;
+  }
+
+  public function checkAssessmentRatingExists($groupId, $languageId, $rating) {
+    $statement = new Papaya\Database\Statement\Prepared(
+      $this->getDatabaseAccess(),
+      'SELECT COUNT(*)
+         FROM :assessments 
+        WHERE group_id = :group_id 
+          AND lng_id = :language_id 
+          AND assessment_rating = :rating'
+    );
+    $statement->addTableName('assessments', self::TABLE_ASSESSMENTS);
+    $statement->addInt('group_id', (int)$groupId);
+    $statement->addInt('language_id', (int)$languageId);
+    $statement->addInt('rating', (int)$rating);
+    if ($result = $this->databaseQuery($statement)) {
+      return $result->fetchField();
     };
     return FALSE;
   }
