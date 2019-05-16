@@ -799,8 +799,16 @@ class base_quiz extends base_db {
               $quizId, $contentObj->parentObj->getContentLanguageId(), $rating
             );
             if ($assessment) {
-              $result .= '<assessment>';
-              $result .= sprintf('<title>%s</title>', $contentObj->getXHTMLString($assessment['assessment_title']));
+              $result .= sprintf('<assessment points="%d">', $rating);
+              $result .= sprintf(
+                '<title>%s</title>',
+                \Papaya\Utility\Text\XML::escape(
+                  new \Papaya\UI\Text\Placeholders(
+                    $assessment['assessment_title'],
+                    ['rating' => number_format($rating, 0)]
+                  )
+                )
+              );
               $result .= sprintf('<text>%s</text>', $contentObj->getXHTMLString($assessment['assessment_text']));
               $result .= '</assessment>';
             }

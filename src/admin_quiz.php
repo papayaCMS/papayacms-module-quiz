@@ -1571,6 +1571,7 @@ class admin_quiz extends base_quiz {
         '',
         NEW \Papaya\Filter\NotEmpty()
       );
+      $field->setHint(new UI\Text\Translated('Placeholder: {rating}'));
       $field->setMandatory(TRUE);
       $dialog->fields[] = new UI\Dialog\Field\Textarea\Richtext(
         new UI\Text\Translated('Text'),
