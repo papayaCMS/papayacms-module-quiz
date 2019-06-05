@@ -712,9 +712,10 @@ class base_quiz extends base_db {
         ? $this->params['question_id'] : reset($questionIds);
       $currentOffset = array_search($currentId, $questionIds, FALSE) ?: 0;
       $questionNumber = $currentOffset + 1;
-      if ($showFollowing && $currentOffset <= count($questionIds) - 1) {
+      $lastOffset = count($questionIds) - 1;
+      if ($showFollowing && $currentOffset <= $lastOffset) {
         $previousId = $currentId;
-        $currentId = $questionIds[$currentOffset + 1];
+        $currentId = $currentOffset < $lastOffset ? $questionIds[$currentOffset + 1] : NULL;
         $questionNumber = $currentOffset + 2;
       } elseif ($currentOffset > 0) {
         $previousId = $questionIds[$currentOffset - 1];
