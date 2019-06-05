@@ -514,7 +514,7 @@ class base_quiz extends base_db {
         FROM :assessments 
        WHERE group_id = :group_id 
          AND lng_id = :language_id
-         AND assessment_rating < :rating
+         AND assessment_rating <= :rating
        ORDER BY assessment_rating DESC'
     );
     $statement->addTableName('assessments', self::TABLE_ASSESSMENTS);
