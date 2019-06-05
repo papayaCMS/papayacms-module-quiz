@@ -5,7 +5,7 @@
     <field name="group_id" type="integer" size="4" null="no"/>
     <field name="lng_id" type="integer" size="4" null="no"/>
     <field name="assessment_title" type="string" size="255" null="yes"/>
-    <field name="assessment_text" type="string" size="255" null="yes"/>
+    <field name="assessment_text" type="string" size="65535" null="yes"/>
     <field name="assessment_rating" type="integer" size="4" null="no" default="0"/>
   </fields>
   <keys>
